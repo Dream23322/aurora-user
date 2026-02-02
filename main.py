@@ -504,6 +504,23 @@ class Processor():
         print("Processing segments with SteamID folders retained...")
         self.process_all_segments(base_input, base_output)
 
+def ClassicAntiCheat():
+    def __init__(self):
+        super().__init__()
+
+    class PlayerData():
+        def __init__(self, steamid, hsp):
+            self.steamid = steamid
+            self.hsp = hsp
+
+    def run(self, input_file_path):
+        if( not os.path.exists(input_file_path)):
+            print("File does not exist!")
+            return None
+        parser = dp(input_file_path)
+
+        # Get HS% for each player
+
 
 # The UI and all that stuff
 class AuroraApp():
