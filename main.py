@@ -19,15 +19,15 @@ import webbrowser
 ###############
 
 version = ""
-app_version = "1.0"
+app_version = "1.1"
 
 app_update = False
 
 folder_path = os.path.join(os.environ['USERPROFILE'], 'a-ac')
 
-if os.path.exists(os.path.join(folder_path, "scripts")):
-    with open(os.path.join(folder_path, "version.txt"), "r") as f:
-        version = f.read().strip()
+if os.path.exists(os.path.join(folder_path, "latest.txt")):
+    with open(os.path.join(folder_path, "latest.txt"), "r") as f:
+        version = f.read().strip()           
 else:
     # remove old folder
     shutil.rmtree(folder_path, ignore_errors=True)
@@ -38,30 +38,20 @@ try:
     latest_version = subprocess.check_output(
         ["curl", "-s", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/latest.txt"]
     ).decode("utf-8").strip()
-    print("1")
+
     if latest_version != version:
         # Delete current folder, this forces redownload of latest version
         shutil.rmtree(os.path.join(os.environ['USERPROFILE'], 'a-ac'), ignore_errors=True)
 
-    print("2")
-
     latest_app_version = subprocess.check_output(
         ["curl", "-s", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/app-version.txt"]
     ).decode("utf-8").strip()
-
-    print("3")
 
     if latest_app_version != app_version:
         app_update = True
 
 except subprocess.CalledProcessError as e:
     print("Failed to check for updates. Please visit the GitHub page to download the latest version.\nCheck internet connection. \nError details:", e)
-
-# Debug
-print(f"Current AI Version: {version}"
-      f"\nCurrent App Version: {app_version}"
-      f"\nLatest AI Version: {latest_version}"
-      f"\nLatest App Version: {latest_app_version}")
 
 # Create folder named "a-ac" in user's home directory if it doesn't exist yet
 folder_path = os.path.join(os.environ['USERPROFILE'], 'a-ac')
@@ -78,9 +68,8 @@ if not os.path.exists(folder_path):
     subprocess.run(["curl", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/aim-assist-model.h5", "-o", os.path.join(folder_path, "model/aim-assist-model.h5")])
     subprocess.run(["curl", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/scaler.pkl", "-o", os.path.join(folder_path, "model/scaler.pkl")])
 
-# Sanity check
-if not os.path.exists(os.path.join(folder_path, "model/aim-assist-model.h5")) or not os.path.exists(os.path.join(folder_path, "model/scaler.pkl")):
-    raise FileNotFoundError("Model files not found in the a-ac/model directory.")
+    # Download version ig
+    subprocess.run(["curl", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/latest.txt", "-o", os.path.join(folder_path, "latest.txt")])
 
 # All done :D
 
