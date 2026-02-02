@@ -5,8 +5,6 @@ Developed by 4urxra, with credit to yviler
 
 ## What happens during install?
 
-You worried after seeing the little popup on first launch? ok here is whats happening.
-
 The exe is going to make a folder in ur user directory (usually something like: C:\Users\4urxra\)
 
 The folder will be called a-ac, it just has files that we need, that will be downloaded from this repositories sister repo
@@ -24,6 +22,10 @@ a-ac/
     model/
         aim-assist-model.h5
         scaler.pkl```
+
+# Ideas
+
+Non-ai checks, this would look at KD, HS%, assists, ace_rounds, 4k_rounds, damage_total,
 
 # Credit
 A good portion of this code, and the idea is from [yviler's cs2-cheat-detection](https://github.com/yviler/cs2-cheat-detection/)

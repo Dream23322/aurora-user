@@ -11,27 +11,57 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from demoparser2 import DemoParser as dp
 from tqdm import tqdm
 import threading
-
+import dearpygui.dearpygui as dpg
+import webbrowser
 
 #################
 # A-AC by 4urxra
 ###############
 
-version = "0.0.2"
+version = ""
+app_version = "1.0"
 
-# Next few lines of code are documented in README.md
+app_update = False
+
+folder_path = os.path.join(os.environ['USERPROFILE'], 'a-ac')
+
+if os.path.exists(os.path.join(folder_path, "scripts")):
+    with open(os.path.join(folder_path, "version.txt"), "r") as f:
+        version = f.read().strip()
+else:
+    # remove old folder
+    shutil.rmtree(folder_path, ignore_errors=True)
+    version = "0.0"
 
 # Check for updates (get latest version from GitHub https://github.com/Dream23322/aurora-background/blob/main/other/latest.txt)
 try:
     latest_version = subprocess.check_output(
-        ["curl", "-s", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/latest.txt"]
+        ["curl", "-s", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/latest.txt"]
     ).decode("utf-8").strip()
+    print("1")
     if latest_version != version:
         # Delete current folder, this forces redownload of latest version
         shutil.rmtree(os.path.join(os.environ['USERPROFILE'], 'a-ac'), ignore_errors=True)
 
-except subprocess.CalledProcessError:
-    print("Failed to check for updates. Please visit the GitHub page to download the latest version.")
+    print("2")
+
+    latest_app_version = subprocess.check_output(
+        ["curl", "-s", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/other/app-version.txt"]
+    ).decode("utf-8").strip()
+
+    print("3")
+
+    if latest_app_version != app_version:
+        app_update = True
+
+except subprocess.CalledProcessError as e:
+    print("Failed to check for updates. Please visit the GitHub page to download the latest version.\nCheck internet connection. \nError details:", e)
+
+# Debug
+print(f"Current AI Version: {version}"
+      f"\nCurrent App Version: {app_version}"
+      f"\nLatest AI Version: {latest_version}"
+      f"\nLatest App Version: {latest_app_version}")
 
 # Create folder named "a-ac" in user's home directory if it doesn't exist yet
 folder_path = os.path.join(os.environ['USERPROFILE'], 'a-ac')
@@ -45,8 +75,12 @@ if not os.path.exists(folder_path):
 
     os.makedirs(os.path.join(folder_path, "model"), exist_ok=True)
     # Download model file
-    subprocess.run(["curl", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/aim-assist-model.h5", "-o", os.path.join(folder_path, "model/aim-assist-model.h5")])
-    subprocess.run(["curl", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/scaler.pkl", "-o", os.path.join(folder_path, "model/scaler.pkl")])
+    subprocess.run(["curl", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/aim-assist-model.h5", "-o", os.path.join(folder_path, "model/aim-assist-model.h5")])
+    subprocess.run(["curl", "-k", "https://raw.githubusercontent.com/Dream23322/aurora-background/main/model/scaler.pkl", "-o", os.path.join(folder_path, "model/scaler.pkl")])
+
+# Sanity check
+if not os.path.exists(os.path.join(folder_path, "model/aim-assist-model.h5")) or not os.path.exists(os.path.join(folder_path, "model/scaler.pkl")):
+    raise FileNotFoundError("Model files not found in the a-ac/model directory.")
 
 # All done :D
 
@@ -472,95 +506,171 @@ class Processor():
 
 
 # The UI and all that stuff
-class AuroraApp(ctk.CTk):
+class AuroraApp():
     def __init__(self, background: AuroraBackground, parser: Parser, processor: Processor):
         super().__init__()
+
         self.background = background
         self.parser = parser
         self.processor = processor
 
-        # UI setup
-        ctk.set_appearance_mode("System")
-        ctk.set_default_color_theme("dark-blue")
+        self.theme = (217, 156, 195)
 
-        self.root = ctk.CTk()
-        self.root.geometry("700x500")
-        self.root.resizable(False, False)
-        self.root.title("Aurora Background")
-        self.root.protocol("WM_DELETE_WINDOW", self.root.quit)
+        dpg.create_context()
 
-        self.frame = ctk.CTkFrame(master=self.root)
-        self.frame.pack(pady=20, padx=60, fill="both", anchor="nw")
+        with dpg.theme() as container_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Tab, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_TabHovered, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_TabActive, self.theme, category=dpg.mvThemeCat_Core),
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, self.theme, category=dpg.mvThemeCat_Core)
+                dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram, self.theme, category=dpg.mvThemeCat_Core)
 
-        self.title = ctk.CTkLabel(master=self.frame, text="Aurora Anti-Cheat", font=ctk.CTkFont(size=20, weight="bold"))
-        self.title.pack(pady=5, padx=10, anchor="w")
+        dpg.create_viewport(title=f'A-AC [v{version}]', width=700, height=500)
 
-        self.dev = ctk.CTkLabel(master=self.frame, text="by 4urxra and yviler", font=ctk.CTkFont(size=12, weight="normal"))
-        self.dev.pack(pady=0, padx=10, anchor="w")
 
-        self.second_frame = ctk.CTkFrame(master=self.root)
-        self.second_frame.pack(pady=20, padx=60, fill="both", expand=False, anchor="nw")
-        
-        self.button_frame = ctk.CTkFrame(master=self.second_frame)
-        self.button_frame.pack(pady=10, padx=10, anchor="w", fill="x")
-        self.button_frame.grid_columnconfigure(0, weight=0)
-        self.button_frame.grid_columnconfigure(1, weight=1)
-        
-        self.select_button = ctk.CTkButton(master=self.button_frame, text="Select Demo", command=self.select_demo)
-        self.select_button.grid(row=0, column=0, padx=10, pady=5)
 
-        self.has_file = ctk.CTkLabel(master=self.button_frame, text="Demo: No demo selected", font=ctk.CTkFont(size=14, weight="bold"))
-        self.has_file.grid(row=0, column=1, padx=10, pady=5, sticky="w")
+        with dpg.window(tag="Primary Window"):
+            dpg.bind_item_theme("Primary Window", container_theme)
+            with dpg.tab_bar():
+                with dpg.tab(label="AI Aim Assist"):
+                    dpg.add_spacer(width=75)
 
-        self.go_button = ctk.CTkButton(master=self.second_frame, text="Run Analysis", command=threading.Thread(target=self.run).start)
-        self.go_button.pack(pady=10, padx=10, anchor="w")
+                    dpg.add_text("Aurora Anti-Cheat")
+                    dpg.add_text("by 4urxra and yviler", bullet=True)
 
-        self.result_title = ctk.CTkLabel(master=self.second_frame, text="Output", font=ctk.CTkFont(size=15, weight="bold"))
-        self.result_title.pack(pady=5, padx=10, anchor="w")
+                    if app_update:
+                        dpg.add_spacer(height=10)
+                        dpg.add_separator()
+                        dpg.add_spacer(height=10)
+                        dpg.add_text("A new version of Aurora Anti-Cheat is available!\nPlease visit the GitHub page to download the latest version.", color=(255, 0, 0))
+                        with dpg.group(horizontal=True):
+                            dpg.add_button(label="GitHub User", callback=lambda: webbrowser.open("https://github.com/Dream23322/aurora-user/releases/latest"))
 
-        self.loading_bar = ctk.CTkProgressBar(master=self.second_frame, width=500)
-        self.loading_bar.pack(pady=5, padx=10, anchor="w")
-        self.loading_bar.set(0)
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
 
-        self.result_display = ctk.CTkTextbox(master=self.second_frame, width=500, height=200)
-        self.result_display.pack(pady=5, padx=10, anchor="w")
+                    dpg.add_text("Demo Selection:")
 
-        self.error_label = ctk.CTkLabel(master=self.second_frame, text="", font=ctk.CTkFont(size=12, weight="normal"), text_color="red")
-        self.error_label.pack(pady=5, padx=10, anchor="w")
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Select Demo", tag="select_demo_button", callback=lambda: self.select_demo())
+                        self.has_file = dpg.add_text("Demo: No demo selected", tag="demo_status_text")
 
-        self.root.mainloop()
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Run Analysis", tag="run_analysis_button", callback=lambda: threading.Thread(target=self.run).start())
 
+                        self.progress_bar = dpg.add_progress_bar(tag="loading_bar", width=500, default_value=0.0, overlay="Progress")
+
+                    dpg.add_spacer(height=5)
+                    dpg.add_separator()
+
+                    self.output_labels = []
+                    # self.output_buttons = []
+
+                    for i in range(10):
+                        with dpg.group(horizontal=True):
+                            self.label_id = dpg.add_text("")
+                            self.output_labels.append(self.label_id)
+
+                            # self.button_id = dpg.add_button(label="Profile", tag=f"profile_button_{i}", show=False)
+                            # self.output_buttons.append(self.button_id)
+
+                    dpg.add_spacer(height=10)
+
+                    self.error_label = dpg.add_text("")
+
+                    dpg.add_spacer(height=10)
+
+                with dpg.tab(label="Classic Anti-Cheat"):
+                    dpg.add_text("Classic style anti-cheat, looking for bad values, instead of using machine learning.")
+
+                    
+
+                with dpg.tab(label="About"):
+                    dpg.add_text("Aurora Anti-Cheat (A-AC)")
+                    dpg.add_text(f"Ai-Version: {version} | App Version: {app_version}")
+                    dpg.add_text("Developed by 4urxra and yviler")
+                    dpg.add_spacer(height=10)
+                    dpg.add_text("A-AC is an advanced anti-cheat detection tool for Counter-Strike 2 demos, \nleveraging machine learning to identify potential aim-assist cheats.")
+                    dpg.add_spacer(height=10)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="GitHub User", callback=lambda: webbrowser.open("https://github.com/Dream23322/aurora-user"))
+                        dpg.add_button(label="GitHub Background", callback=lambda: webbrowser.open("https://github.com/Dream23322/aurora-background"))
+                    dpg.add_spacer(height=10)
+                    dpg.add_text("This software may produce false positives. Do not take this as absolute proof of cheating.")
+
+        with dpg.theme() as global_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+                dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 1)
+                dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, 20)
+                dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 1)
+                dpg.add_theme_color(dpg.mvThemeCol_TabActive, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (107, 110, 248))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (71, 71, 77))
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (71, 71, 77))
+                dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram, (107, 110, 248))
+            
+        dpg.bind_theme(global_theme)
+
+        dpg.create_context()
+        dpg.show_viewport()
+
+        dpg.setup_dearpygui()
+        dpg.set_primary_window("Primary Window", True)
+        dpg.start_dearpygui()
 
     def select_demo(self):
         self.background.demo_selector()
-        self.has_file.configure(text="Demo: Found demo in folder")
+        dpg.set_value(self.has_file, "Demo: Demo selected")
 
     def run(self):
         if not self.background.demo_exists():
-            self.error_label.configure(text="Error: No demo found, please select a demo first.")
+            dpg.set_value(self.error_label, "Error: No demo file found in demo-holder folder, please select a valid demo!")
+            print("No demo file found in demo-holder folder!")
             return
-        self.loading_bar.set(0.1)
+        
+        dpg.set_value(self.progress_bar, 0.1)
         self.parser.run()
-        self.loading_bar.set(0.3)
+        dpg.set_value(self.progress_bar, 0.2)
         self.processor.run()
-        self.loading_bar.set(0.6)
-
+        dpg.set_value(self.progress_bar, 0.4)
         output = self.background.check_demo_folder(
             os.path.join(folder_path, "temp/processed")
         )
-        self.loading_bar.set(0.9)
+
+        dpg.set_value(self.progress_bar, 0.9)
+
+        count = 0
 
         for player in output.players:
-            self.result_display.insert(ctk.END, f"{player.steamname} | {player.percent:.2f}%\n")
-            self.result_display.insert(ctk.END, f"> Data: SA: {player.segments} | SS: {player.amount} | SI: {player.steamid}\n")
-            self.result_display.insert(ctk.END, "----------------------------------------\n")
+            # self.result_display.insert(ctk.END, f"{player.steamname} | {player.percent:.2f}%\n")
+            # self.result_display.insert(ctk.END, f"> Data: SA: {player.segments} | SS: {player.amount} | SI: {player.steamid}\n")
+            # self.result_display.insert(ctk.END, "----------------------------------------\n")
 
-        self.loading_bar.set(1.0)
+            dpg.set_value(self.output_labels[count], f"{player.steamname} | {player.percent:.2f}% | ID: {player.steamid.replace('user_', '')}")
+            # dpg.configure_item(f"profile_button_{count}", show=True, callback=lambda u=f"{player.steamid}": webbrowser.open(f"https://www.cs2guard.com/player/{player.steamid.replace('user_', '')}"))
+            count += 1
+
+        dpg.set_value(self.progress_bar, 1.0)
 
 if __name__ == "__main__":
     background = AuroraBackground()
     background.load()
     parser = Parser()
     processor = Processor()
-    app = AuroraApp(background, parser, processor)
-    app.root.mainloop()
+    ui = AuroraApp(background, parser, processor)
