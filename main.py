@@ -138,6 +138,7 @@ class AuroraBackground():
         try:
             demo_path = askopenfilename(title="Select a CS2 Demo", filetypes=[("CS2 Demos", "*.dem")], initialdir=r"\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays")
             self.copy_demo_to_folder(demo_path)
+            return demo_path
         except Exception as e:
             print(e)
             demo_path = askopenfilename(title="Select a CS2 Demo", filetypes=[("CS2 Demos", "*.dem")])
@@ -493,32 +494,240 @@ class Processor():
         print("Processing segments with SteamID folders retained...")
         self.process_all_segments(base_input, base_output)
 
-def ClassicAntiCheat():
+class ClassicAntiCheat():
     def __init__(self):
         super().__init__()
 
-    class PlayerData():
-        def __init__(self, steamid, hsp):
-            self.steamid = steamid
-            self.hsp = hsp
+        self.demo = None
 
+    class PlayerData():
+        def __init__(self, steamid, name, k, d, hsk, fkr, akr, p_velo, y_velo, p_accel, y_accel, p_jerk, y_jerk, kill_dist):
+            self.steamid = steamid
+            self.name = name
+            self.hsp = hsk / k * 100 if k > 0 else 0
+            self.kills = k 
+            self.deaths = d 
+            self.hsk = hsk
+            self.fkr = fkr
+            self.akr = akr
+            self.p_velo = p_velo
+            self.y_velo = y_velo
+            self.p_accel = p_accel
+            self.y_accel = y_accel
+            self.p_jerk = p_jerk
+            self.y_jerk = y_jerk
+            self.kill_dist = kill_dist
+
+            self.suspicious_flags = []
+
+    def euclidean_distance(self, x1, y1, x2, y2):
+        return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    
     def run(self, input_file_path):
         if( not os.path.exists(input_file_path)):
             print("File does not exist!")
             return None
+        
         parser = dp(input_file_path)
 
         # Get HS% for each player
+    
+        parser = dp(input_file_path)
+
+        player_data_list_A = self.checkA(parser)
+        player_data_list_B = self.checkB(parser)
+ 
+        return player_data_list_A + player_data_list_B
+    
+    def checkA(self, parser):
+        max_tick = parser.parse_event("round_end")["tick"].max()
+
+        wanted_fields = ["kills_total", "deaths_total", "mvps", "headshot_kills_total", "ace_rounds_total", "4k_rounds_total", "3k_rounds_total"]
+        df = parser.parse_ticks(wanted_fields, ticks=[max_tick])
+        print(df)
+
+        player_data_list = []
+        for _, row in df.iterrows():
+            player_data = self.PlayerData(
+                steamid=row["steamid"],
+                name=row["name"],
+                k=row["kills_total"],
+                d=row["deaths_total"],
+                hsk=row["headshot_kills_total"],
+                fkr=row["4k_rounds_total"],
+                akr=row["ace_rounds_total"],
+                p_velo=0,
+                y_velo=0,
+                p_accel=0,
+                y_accel=0,
+                p_jerk=0,
+                y_jerk=0,
+                kill_dist=0
+            )
+            player_data_list.append(player_data)
+            print("", player_data.__dict__)
+
+        self.value_check(player_data_list)
+        self.ratio_check(player_data_list)
+
+        print("Classic Anti-Cheat Results:")
+        for player in player_data_list:
+            print(player.__dict__)
+
+    def checkB(self, parser):
+        events = parser.parse_event("player_death", player=["X", "Y", "Z", "pitch", "yaw", "steamid", "name"])
+        ticks_df = parser.parse_ticks(["tick", "steamid", "X", "Y", "Z", "pitch", "yaw", "name"])
+
+        temp = []
+        output = []
+
+        for _, event in events.iterrows():
+            attacker = event.get("attacker_steamid")
+            victim = event.get("user_steamid")
+            tick = event["tick"]
+
+            if not attacker or not victim:
+                continue
+
+            attacker_int = int(attacker)
+            start_tick = tick - 300
+            end_tick = tick
+                                
+            attacker_window = ticks_df[
+                ticks_df["tick"].between(start_tick, end_tick) &
+                (ticks_df["steamid"] == attacker_int)
+            ].drop_duplicates(subset="tick")
+
+            if attacker_window.empty:
+                continue
+
+            full_index = list(range(start_tick, end_tick))
+            attacker_window = (
+                attacker_window.set_index("tick")
+                .reindex(full_index)
+                .ffill()
+                .reset_index()
+                .rename(columns={"index": "tick"})
+            )
+
+            attacker_window["steamid"] = attacker_int
+
+            dist = self.euclidean_distance(
+                event.get("attacker_X", 0),
+                event.get("attacker_Y", 0),
+                event.get("user_X", 0),
+                event.get("user_Y", 0)
+            )
+
+            engineered = self.engineer_important_B(attacker_window)
+
+            player = self.PlayerData(
+                steamid=attacker_int,
+                name=attacker_window["name"].iloc[0] if "name" in attacker_window.columns and not attacker_window["name"].empty else "Unknown",
+                k=0,
+                d=0,
+                hsk=0,
+                fkr=0,
+                akr=0,
+                p_velo=engineered['pitch_velocity'],
+                y_velo=engineered.get('yaw_velocity', 0),
+                p_accel=engineered.get('pitch_acceleration', 0),
+                y_accel=engineered.get('yaw_acceleration', 0),
+                p_jerk=engineered.get('pitch_jerk', 0),
+                y_jerk=engineered.get('yaw_jerk', 0),
+                kill_dist=dist
+            )
+
+            temp.append(player)
+
+        for p in temp:
+            p.suspicious_flags + self.aim_a(p)
+            output.append(p)
+
+        return output
+
+    def aim_a(self, p: PlayerData):
+        result = []
+
+        if abs(p.p_accel - p.y_accel) < 0.004:
+            result.append(f"AimAssist (a) [ACCEL:{abs(p.p_accel - p.y_accel)}]")
+
+        if abs(p.p_jerk - p.y_jerk) < 0.004:
+            result.append(f"AimAssist (a) [JERK:{abs(p.p_jerk - p.y_jerk)}]")
+
+        if abs(p.p_velo - p.y_velo) < 0.05:
+            result.append(f"AimAssist (a) [VELO:{abs(p.p_velo - p.y_velo)}]")
+
+        return result
+    
+    def aim_b(self, p: PlayerData):
+        result = []
+
+        if p.p_accel < 0.0000001 and p.y_accel > 0.00002 or p.p_accel > 0.00002 and p.y_accel < 0.0000001:
+            result.append(f"AimAssist (b) [ACCEL,p={p.p_accel},y={p.y_accel}]")
+        
+        return result
+
+
+    def engineer_important_B(self, df):
+        df = df.copy()
+
+        ticks = df['tick'].diff()
+
+        pitch_velo = df['pitch'].diff() / ticks
+        yaw_velo = df['yaw'].diff() / ticks
+        pitch_accel = pitch_velo.diff() / ticks
+        yaw_accel =  yaw_velo.diff() / ticks
+        pitch_jerk = pitch_accel.diff() / ticks
+        yaw_jerk = yaw_accel.diff() / ticks
+
+        return {
+            'pitch_velocity': pitch_velo,
+            'yaw_velocity': yaw_velo,
+            'pitch_acceleration': pitch_accel,
+            'yaw_acceleration': yaw_accel,
+            'pitch_jerk': pitch_jerk,
+            'yaw_jerk': yaw_jerk
+        }
+
+    def value_check(self, player_data_list):
+        for player in player_data_list:
+            if player.hsp > 55:
+                player.suspicious_flags.append(f"HS% (a) [{round(player.hsp, 2)}%]")
+            if player.kills / max(player.deaths, 1) > 2.8:
+                player.suspicious_flags.append(f"KDR (a) [{round(player.kills / max(player.deaths, 1), 2)}%]")
+            if player.hsk > 20:
+                player.suspicious_flags.append(f"HSK (a) [{player.hsk}]")
+            if player.kills > 40:
+                player.suspicious_flags.append(f"Kills (a) [{player.kills}]")
+            if player.fkr > 5:
+                player.suspicious_flags.append(f"4KR (a) [{player.fkr}]")
+            if player.akr > 2:
+                player.suspicious_flags.append(f"AKR (a) [{player.akr}]")
+
+    def ratio_check(self, player_data_list):
+        for player in player_data_list:
+            if player.fkr / max(player.kills, 1) * 100 > 12:
+                player.suspicious_flags.append(f"4KR (b) [{round(player.fkr / max(player.kills, 1) * 100, 2)}]")
+            if player.akr / max(player.kills, 1) * 100 > 7:
+                player.suspicious_flags.append(f"AKR (b) [{round(player.akr / max(player.kills, 1) * 100, 2)}]")
+            if player.kills / player.akr if player.akr > 0 else 999 == 5:
+                player.suspicious_flags.append(f"AKR (c)")
+
+
+    def set_demo(self, demo_path):
+        self.demo = demo_path
 
 
 # The UI and all that stuff
 class AuroraApp():
-    def __init__(self, background: AuroraBackground, parser: Parser, processor: Processor):
+    def __init__(self, background: AuroraBackground, parser: Parser, processor: Processor, classic: ClassicAntiCheat):
         super().__init__()
 
         self.background = background
         self.parser = parser
         self.processor = processor
+        self.classic = classic
 
         self.theme = (217, 156, 195)
 
@@ -585,9 +794,6 @@ class AuroraApp():
                             self.label_id = dpg.add_text("")
                             self.output_labels.append(self.label_id)
 
-                            # self.button_id = dpg.add_button(label="Profile", tag=f"profile_button_{i}", show=False)
-                            # self.output_buttons.append(self.button_id)
-
                     dpg.add_spacer(height=10)
 
                     self.error_label = dpg.add_text("")
@@ -597,7 +803,26 @@ class AuroraApp():
                 with dpg.tab(label="Classic Anti-Cheat"):
                     dpg.add_text("Classic style anti-cheat, looking for bad values, instead of using machine learning.")
 
-                    
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
+
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Select Demo", tag="select_demo_button_2", callback=lambda: self.select_demo())
+                        self.has_file_2 = dpg.add_text("Demo: No demo selected", tag="demo_status_text_2")
+
+                    self.add_gap(dpg)
+
+                    dpg.add_button(label="Run Classic Analysis", tag="run_classic_analysis_button", callback=self.run_classic)
+
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
+                    dpg.add_text("Flags:")
+                    dpg.add_separator()
+                    self.flag_label = dpg.add_text("\n")
+                    dpg.add_spacer(height=10)
+
 
                 with dpg.tab(label="About"):
                     dpg.add_text("Aurora Anti-Cheat (A-AC)")
@@ -640,9 +865,38 @@ class AuroraApp():
         dpg.set_primary_window("Primary Window", True)
         dpg.start_dearpygui()
 
+    def add_gap(self, dpg):
+        dpg.add_spacer(height=10)
+        dpg.add_separator()
+        dpg.add_spacer(height=10)
+
+    def run_classic(self):
+        if not self.background.demo_exists():
+            dpg.set_value(self.flag_label, "Error: No demo file found in demo-holder folder, please select a valid demo!")
+            print("No demo file found in demo-holder folder!")
+            return
+
+        output = self.classic.run(self.classic.demo)
+
+        out_text = ""
+
+        for player in output:
+            for flag in player.suspicious_flags:
+                out_text += f"{player.name} failed {flag}\n"
+                print(f"{player.name} failed {flag}")
+        
+        if out_text == "":
+            out_text = "No suspicious players found."
+            print("No suspicious players found.")
+
+        dpg.set_value(self.flag_label, out_text)
+
+
     def select_demo(self):
-        self.background.demo_selector()
-        dpg.set_value(self.has_file, "Demo: Demo selected")
+        output = self.background.demo_selector()
+        self.classic.set_demo(output)
+        dpg.set_value(self.has_file, "Demo: " + str(output))
+        dpg.set_value(self.has_file_2, "Demo: " + str(output))
 
     def run(self):
         if not self.background.demo_exists():
@@ -679,4 +933,5 @@ if __name__ == "__main__":
     background.load()
     parser = Parser()
     processor = Processor()
-    ui = AuroraApp(background, parser, processor)
+    classic = ClassicAntiCheat()
+    ui = AuroraApp(background, parser, processor, classic)
