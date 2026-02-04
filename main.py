@@ -520,6 +520,15 @@ class ClassicAntiCheat():
 
             self.suspicious_flags = []
 
+    class AimSample():
+        def __init__(self, p_v, y_v, p_a, y_a, p_j, y_j):
+            self.pitch_vel = p_v
+            self.yaw_vel = y_v
+            self.pitch_accel = p_a
+            self.yaw_accel = y_a
+            self.pitch_jerk = p_j
+            self.yaw_jerk = y_j
+
     def euclidean_distance(self, x1, y1, x2, y2):
         return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
     
@@ -645,26 +654,47 @@ class ClassicAntiCheat():
             output.append(p)
 
         return output
-
-    def aim_a(self, p: PlayerData):
-        result = []
-
-        if abs(p.p_accel - p.y_accel) < 0.004:
-            result.append(f"AimAssist (a) [ACCEL:{abs(p.p_accel - p.y_accel)}]")
-
-        if abs(p.p_jerk - p.y_jerk) < 0.004:
-            result.append(f"AimAssist (a) [JERK:{abs(p.p_jerk - p.y_jerk)}]")
-
-        if abs(p.p_velo - p.y_velo) < 0.05:
-            result.append(f"AimAssist (a) [VELO:{abs(p.p_velo - p.y_velo)}]")
-
-        return result
     
-    def aim_b(self, p: PlayerData):
+    def create_easy_aim_data(self, input):
+        output = []
+        for _, piece in input:
+            output.append(
+                self.AimSample(
+                    piece["pitch_velocity"],
+                    piece["yaw_velocity"],
+                    piece["pitch_acceleration"],
+                    piece["yaw_acceleration"],
+                    piece["pitch_j"]
+                )
+            )
+
+        # Return the list
+        return output
+        
+    def aim_a(self, p: PlayerData, d: list):
+        # Check for rounded values in a players aim data
         result = []
 
-        if p.p_accel < 0.0000001 and p.y_accel > 0.00002 or p.p_accel > 0.00002 and p.y_accel < 0.0000001:
-            result.append(f"AimAssist (b) [ACCEL,p={p.p_accel},y={p.y_accel}]")
+        for piece in d:
+            if piece.pitch_vel % 1 == 0:
+                result.append(f"AimAssist (a) [p_v={piece.pitch_vel}]")
+
+            if piece.yaw_vel % 1 == 0:
+                result.append(f"AimAssist (a) [y_v={piece.yaw_vel}]")
+
+
+        
+    
+    def aim_b(self, p: PlayerData, d: list):
+        # Checks for perfect aim movements
+        result = []
+        buffer = 0
+        for piece in d:
+            if piece.pitch_accel < 0.0000001 and piece.yaw_accel > 0.00002 or piece.pitch_accel > 0.00002 and piece.yaw_accel < 0.0000001:
+                buffer += 1
+
+        if buffer >= 10:
+            result.append(f"AimAssist (b) [buffer={buffer}]")
         
         return result
 
