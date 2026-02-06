@@ -649,15 +649,23 @@ class ClassicAntiCheat():
 
             temp.append(player)
 
+        data = self.create_easy_aim_data(attacker_window)
+
         for p in temp:
-            p.suspicious_flags + self.aim_a(p)
+            p.suspicious_flags + self.aim_a(p, data)
+            p.suspicious_flags + self.aim_b(p, data)
+            p.suspicious_flags + self.aim_c(p, data)
+            p.suspicious_flags + self.aim_d(p, data)
+
             output.append(p)
 
         return output
     
     def create_easy_aim_data(self, input):
         output = []
-        for _, piece in input:
+        for _, piece in input.iterrows():
+            # TEMP
+            print(piece)
             output.append(
                 self.AimSample(
                     piece["pitch_velocity"],
@@ -682,22 +690,82 @@ class ClassicAntiCheat():
             if piece.yaw_vel % 1 == 0:
                 result.append(f"AimAssist (a) [y_v={piece.yaw_vel}]")
 
-
-        
-    
     def aim_b(self, p: PlayerData, d: list):
         # Checks for perfect aim movements
+        # TODO: Check for perfect diagonal movement, and for pitch/yaw_velocity
         result = []
         buffer = 0
         for piece in d:
             if piece.pitch_accel < 0.0000001 and piece.yaw_accel > 0.00002 or piece.pitch_accel > 0.00002 and piece.yaw_accel < 0.0000001:
                 buffer += 1
 
+            if (piece.yaw_velocity > 0.5 and piece.pitch_velocity < 0.001) or (piece.pitch_velocity > 0.5 and piece.yaw_velocity < 0.001):
+                buffer += 1
+                
         if buffer >= 10:
             result.append(f"AimAssist (b) [buffer={buffer}]")
         
         return result
+    
+    def aim_c(self, p: PlayerData, d: list):
+        # Checks for invalid acceleration
+        result = []
 
+        history_pitch = [-0, -0]
+        history_yaw = [-0, -0]
+
+        for piece in d:
+            if history_pitch[1] != -0:
+                if piece.pitch_acceleration < 0.00001 and history_pitch[0] > 0.03 and history_pitch[1] < 0.00001:
+                    result.append(f"AimAssist (c) [PITCH,history=[{piece.pitch_acceleration},{history_pitch[0]},{history_pitch[1]}]]")
+                
+                if piece.yaw_acceleration < 0.00001 and history_yaw[0] > 0.03 and history_yaw[1] < 0.00001:
+                    result.append(f"AimAssist (c) [YAW,history=[{piece.yaw_acceleration},{history_yaw[0]},{history_yaw[1]}]]")
+
+            history_pitch = [piece.yaw_acceleration, history_pitch[0]]
+            history_yaw = [piece.pitch_acceleration, history_yaw[0]]
+
+        return result
+
+    def aim_d(self, p: PlayerData, d: list):
+        # Checks for really smooth aim
+        result = []
+
+        stdv_yaw, stdv_pitch = self.aim_d_std(d)
+        avg_yaw, avg_pitch = self.aim_d_avg(d)
+
+        if(self.aim_d_check(stdv_yaw, avg_yaw)):
+            result.append("AimAssist (c) [YAW,stdv={stdv_yaw},avg={avg_yaw}]")
+        if(self.aim_d_check(stdv_pitch, avg_pitch)):
+            result.append("AimAssist (c) [PITCH,stdv={stdv_pitch},avg={avg_pitch}]")
+
+        return result
+
+        
+    def aim_d_check(self, st, avg):
+        return st < 0.5 and avg > 0.35
+
+    def aim_d_std(self, d: list):
+        # Gets standard deviation of yaw and pitch velocity
+        result_yaw = []
+        result_pitch = []
+
+        for piece in d:
+            result_yaw.append(piece.yaw_velocity)
+            result_pitch.append(piece.pitch_velocity)
+
+        return np.std(result_yaw), np.std(result_pitch)
+    
+    def aim_d_avg(self, d: list):
+        # Gets average of yaw and pitch velocity
+        result_yaw = []
+        result_pitch = []
+       
+        for piece in d:
+            result_yaw.append(piece.yaw_velocity)
+            result_pitch.append(piece.pitch_velocity)
+
+        return np.mean(result_yaw), np.mean(result_pitch)
 
     def engineer_important_B(self, df):
         df = df.copy()
