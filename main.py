@@ -90,6 +90,13 @@ class AuroraBackground():
         self.errors = ""
 
     def load(self):
+        if not os.path.exists(self.config["MODEL_PATH"]):
+            self.errors += "Model not found.\n"
+            return False
+        if not os.path.exists(self.config["SCALER_PATH"]):
+            self.errors += "Scaler not found.\n"
+            return False
+        
         self.model = load_model(self.config["MODEL_PATH"])
         self.scaler = joblib.load(self.config["SCALER_PATH"])
 
@@ -111,6 +118,8 @@ class AuroraBackground():
                        os.path.join(folder_path, "temp/processed")]:
             if os.path.exists(folder):
                 shutil.rmtree(folder)
+            else:
+                print("Skipping: " + folder)
 
     def get_steam_name(self, steamid):
         if not self.config["API_KEY"]:
@@ -235,6 +244,11 @@ class Parser():
         for filename in tqdm(os.listdir(input_dir), desc="Parsing demos"):
             if not filename.endswith('.dem'):
                 continue
+
+            if not os.path.exists(os.path.join(input_dir, filename)):
+                print("Demo not found:" + filename)
+                continue
+
             demo_path = os.path.join(input_dir, filename)
             demo_base = os.path.splitext(filename)[0]
 
@@ -768,6 +782,7 @@ class ClassicAntiCheat():
         return np.mean(result_yaw), np.mean(result_pitch)
 
     def engineer_important_B(self, df):
+        # TODO: Fix this shitshow
         df = df.copy()
 
         ticks = df['tick'].diff()
